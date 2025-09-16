@@ -1,6 +1,4 @@
-# PostgreSQL Anonymizer Starter
-**Dynamic masking + Real-time streaming (triggers) + Static anonymization**  
-_No Kafka/Flink. EU/GDPR-friendly demo._
+# PostgreSQL Anonymizer Streaming
 
 **Dynamic masking + Real‑time anonymized streaming (triggers + sanitized schema) + Static anonymization**  
 _No Kafka / No Flink. EU/GDPR‑friendly demo._
@@ -45,18 +43,17 @@ public.customer ──(AFTER INSERT/UPDATE triggers)──► sanitized.customer
 [optional] Static anonymization (irreversible) ──► safe export for external sharing
 ```
 
-
-- **Dynamic masking** is enabled via `SECURITY LABEL ... IS 'MASKED WITH FUNCTION ...'` and a `MASKED` role (e.g., `analyst`).
-- **Streaming anonymization** is implemented with:
-  - `sanitized` schema + `sanitized.customer` (PK on `customer_id`),
-  - a trigger function that HMAC-tokenizes sensitive fields,
-  - insert/update triggers on `public.customer`,
-  - a read-only `consumer` role limited to `sanitized.*`.
+- Tokens are **deterministic HMACs** (config‑keyed) → enable safe joins across sanitized tables.  
+- For true anonymization (non‑linkable), prefer non‑deterministic replacements or drop identifiers in `sanitized.*`.
 
 ---
 
 ## Folder Layout
 
+> The tree below matches the recommended structure. If your repo currently uses `test/`, either rename it to `tests/` or update the README accordingly.
+
+```
+.
 ├─ docker-compose.yml
 ├─ .gitignore / .gitattributes / .env.example
 ├─ db/
@@ -79,17 +76,20 @@ public.customer ──(AFTER INSERT/UPDATE triggers)──► sanitized.customer
 │  ├─ Cargo.toml
 │  └─ src/main.rs
 └─ tests/
-└─ test_masked_visibility.sql
+   └─ test_masked_visibility.sql
+```
 
 ---
 
 ## Quickstart
 
 ### 0) Prerequisites
+
 - Docker Desktop / Docker Compose v2  
 - Optional: Python 3.11+ (for `app/faker_loader.py`) and Rust toolchain (for `app_rust/`).
 
 ### 1) Configure Ports
+
 By default the DB is exposed on **5432**. If your host already uses 5432, change the mapping to `5433:5432` and use **port 5433** in local connections.
 
 ```yaml
@@ -101,12 +101,15 @@ services:
       - "5432:5432"   # or "5433:5432" if 5432 is occupied on host
 ```
 
-### 2) Bring up the DB
+### 2) Bring Up the Database
+
+```bash
 docker compose up -d
 docker compose logs -f db     # wait for "database system is ready to accept connections"
 ```
 
 ### 3) Verify Dynamic Masking
+
 ```bash
 # admin (unmasked)
 docker exec -it anon_db psql -U postgres -d demo \
@@ -117,10 +120,9 @@ docker exec -it anon_db psql -U analyst -d demo \
   -c "SELECT customer_id, first_name, last_name, email FROM customer LIMIT 5;"
 ```
 
-### 4) Initialize streaming & backfill
-The init scripts already created the sanitized schema, PK, triggers, and consumer role.
-Backfill existing rows once:
+### 4) Initialize Streaming & Backfill
 
+The init scripts create the sanitized schema, triggers, PK and roles. Backfill existing rows once:
 
 ```bash
 docker exec -i anon_db psql -U postgres -d demo -f /docker-entrypoint-initdb.d/55_backfill.sql
@@ -136,8 +138,10 @@ docker exec -it anon_db psql -U consumer -d demo \
       LIMIT 10;"
 ```
 
-### 5) Generate live data (optional)
-python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate
+### 5) Generate Live Data (optional)
+
+```bash
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r app/requirements.txt
 cp .env.example .env
 
@@ -159,22 +163,28 @@ docker exec -it anon_db psql -U consumer -d demo \
       LIMIT 10;"
 ```
 
-## Real-time streaming (triggers)
-db/init/50_sanitized_schema.sql creates sanitized.customer with a PRIMARY KEY on customer_id to allow ON CONFLICT ... DO UPDATE.
-db/init/51_transform_fn.sql defines sanitized.write_customer_sanitized() which:
-builds deterministic HMAC tokens for first_name, last_name, email,
-upserts into sanitized.customer with ON CONFLICT (customer_id).
-db/init/52_triggers.sql attaches AFTER INSERT/UPDATE triggers on public.customer.
-db/init/53_consumer_role.sql grants read-only access to sanitized.* for the consumer role (and revokes public.*).
-Deterministic tokens (HMAC) let downstream tables join on identifiers without exposing real PII.
-For true anonymization (irreversible, non-linkable), switch to non-deterministic replacements or drop identifiers in sanitized.*.
+---
 
-## Static anonymization & dumps
-Masked-role dump (masking applied at read time)
+## How It Works
+
+- **Sanitized schema** (`db/init/50_sanitized_schema.sql`): creates `sanitized.customer` with **PRIMARY KEY (customer_id)** so the trigger can **UPSERT** via `ON CONFLICT`.
+- **Trigger function** (`db/init/51_transform_fn.sql`): computes deterministic HMAC tokens using the Postgres config key `app.hmac_key`, then UPSERTs into `sanitized.customer`.
+- **Triggers** (`db/init/52_triggers.sql`): `AFTER INSERT` and `AFTER UPDATE` on `public.customer` call the function.
+- **Consumer role** (`db/init/53_consumer_role.sql`): grants read‑only on `sanitized.*`, revokes access to `public.*`.
+
+**Rotate HMAC key** (without editing SQL bodies):
+
+```bash
+docker exec -it anon_db psql -U postgres -d demo \
+  -c "ALTER SYSTEM SET app.hmac_key = 'replace-with-a-long-random-secret'; SELECT pg_reload_conf();"
+```
+
+---
 
 ## Static Anonymization & Dumps
 
 - **Masked‑role dump** (masking at read time):
+
 ```bash
 docker exec -it anon_db psql -U postgres -d demo -c "CREATE ROLE anon_dumper LOGIN PASSWORD 'dump';"
 docker exec -it anon_db psql -U postgres -d demo -c "SECURITY LABEL FOR anon ON ROLE anon_dumper IS 'MASKED';"
@@ -183,20 +193,15 @@ docker exec -it anon_db pg_dump -U anon_dumper --no-security-labels demo > demo_
 ```
 
 - **Static anonymization** (irreversible), then dump:
+
 ```bash
 docker exec -it anon_db psql -U postgres -d demo -c "SELECT anon.anonymize_table('customer');"
 docker exec -it anon_db pg_dump -U postgres demo > demo_static_anonymized.sql.dump
-
-## Configuration & security
-HMAC secret (tokens)
-The trigger function reads a config key app.hmac_key. Set/rotate it (use a long random value):
+```
 
 ---
 
-docker exec -it anon_db psql -U postgres -d demo \
-  -c "ALTER SYSTEM SET app.hmac_key = 'replace-with-a-long-random-secret'; SELECT pg_reload_conf();"
-  
-Keep the secret out of SQL bodies and backups.
+## Configuration & Security
 
 - **Secrets**: store `app.hmac_key` via `ALTER SYSTEM SET` (or environment / secrets manager). Do **not** hardcode secrets in SQL.  
 - **Ports**: container is always `5432`. If host maps `5433:5432`, use `port=5433` in local DSNs.  
@@ -204,12 +209,32 @@ Keep the secret out of SQL bodies and backups.
 
 ---
 
-## Inspiration & references
+## Troubleshooting
 
-PostgreSQL Anonymizer (Neon fork) — https://github.com/neondatabase/postgresql_anonymizer
-Official docs — https://postgresql-anonymizer.readthedocs.io/
-Pagila — https://github.com/devrimgunduz/pagila
-Psycopg 3 — https://www.psycopg.org/psycopg3/docs/
-Faker — https://faker.readthedocs.io/
-tokio-postgres — https://docs.rs/tokio-postgres/latest/tokio_postgres/
-GDPR Art. 25 — https://eur-lex.europa.eu/eli/reg/2016/679/oj
+- **Port 5432 in use** → map to `5433:5432` and use `port=5433` locally.  
+- **`(0 rows)` in `sanitized.customer`** → run the backfill once and/or perform a new `INSERT`/`UPDATE`.  
+- **`there is no unique or exclusion constraint matching the ON CONFLICT specification`** → ensure the **PRIMARY KEY** exists on `sanitized.customer(customer_id)`.  
+- **Auth errors** → default creds come from `docker-compose.yml` (`postgres/postgres`). If you changed them after first start, either keep the original password or recreate volumes (`docker compose down -v`).
+
+---
+
+## Inspiration & References
+
+- CipherMQ — inspiration for documentation structure and secure transport ideas (no code copied).  
+  https://github.com/fozouni/CipherMQ
+
+- PostgreSQL Anonymizer (Neon fork) — masking methods and repo layout inspiration.  
+  https://github.com/neondatabase/postgresql_anonymizer
+
+- PostgreSQL Anonymizer (official docs): https://postgresql-anonymizer.readthedocs.io/  
+- Pagila: https://github.com/devrimgunduz/pagila  
+- Psycopg 3: https://www.psycopg.org/psycopg3/docs/  
+- Faker: https://faker.readthedocs.io/  
+- tokio-postgres: https://docs.rs/tokio-postgres/latest/tokio_postgres/  
+- GDPR Art. 25 “Data protection by design”: https://eur-lex.europa.eu/eli/reg/2016/679/oj
+
+---
+
+## License
+
+Released under the **MIT License**. See `LICENSE`.
