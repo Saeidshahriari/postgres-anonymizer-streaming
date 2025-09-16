@@ -1,0 +1,10 @@
+[package]
+name = "leads_loader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-postgres = "0.7"
+fake = { version = "2", features = ["names", "lorem", "http", "chrono"] }
+rand = "0.8"

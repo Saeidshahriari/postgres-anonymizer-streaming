@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Env & secrets
+.env
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
+
+# Rust build artifacts
+target/
+
+# Dumps & temp
+*.sql.dump
+*.log
