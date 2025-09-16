@@ -51,7 +51,6 @@ public.customer --(AFTER INSERT/UPDATE triggers)--> sanitized.customer (HMAC tok
 
 ## Folder layout
 
-.
 ├─ docker-compose.yml
 ├─ .gitignore / .gitattributes / .env.example
 ├─ db/
@@ -96,7 +95,7 @@ services:
     ports:
       - "5432:5432"   # or "5433:5432" if 5432 is occupied on host
 
-2) Bring up the DB
+### 2) Bring up the DB
 docker compose up -d
 docker compose logs -f db   # wait for "ready to accept connections"
 3) Verify dynamic masking
@@ -109,7 +108,7 @@ docker exec -it anon_db psql -U postgres -d demo \
 docker exec -it anon_db psql -U analyst  -d demo \
   -c "SELECT customer_id, first_name, last_name, email FROM customer LIMIT 5;"
 
-4) Initialize streaming & backfill
+### 4) Initialize streaming & backfill
 The init scripts already created the sanitized schema, PK, triggers, and consumer role.
 Backfill existing rows once:
 
@@ -121,7 +120,7 @@ docker exec -it anon_db psql -U consumer -d demo \
   -c "SELECT customer_id, first_name, last_name, email, last_update
       FROM sanitized.customer ORDER BY last_update DESC LIMIT 10;"
 
-5) Generate live data (optional)
+### 5) Generate live data (optional)
 python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r app/requirements.txt
 cp .env.example .env
@@ -139,23 +138,17 @@ docker exec -it anon_db psql -U consumer -d demo \
   -c "SELECT customer_id, first_name, last_name, email, last_update
       FROM sanitized.customer ORDER BY last_update DESC LIMIT 10;"
 
-Real-time streaming (triggers)
+## Real-time streaming (triggers)
 db/init/50_sanitized_schema.sql creates sanitized.customer with a PRIMARY KEY on customer_id to allow ON CONFLICT ... DO UPDATE.
-
 db/init/51_transform_fn.sql defines sanitized.write_customer_sanitized() which:
-
 builds deterministic HMAC tokens for first_name, last_name, email,
-
 upserts into sanitized.customer with ON CONFLICT (customer_id).
-
 db/init/52_triggers.sql attaches AFTER INSERT/UPDATE triggers on public.customer.
-
 db/init/53_consumer_role.sql grants read-only access to sanitized.* for the consumer role (and revokes public.*).
-
 Deterministic tokens (HMAC) let downstream tables join on identifiers without exposing real PII.
 For true anonymization (irreversible, non-linkable), switch to non-deterministic replacements or drop identifiers in sanitized.*.
 
-Static anonymization & dumps
+## Static anonymization & dumps
 Masked-role dump (masking applied at read time)
 
 
@@ -169,19 +162,21 @@ Static anonymization (irreversible), then dump
 
 docker exec -it anon_db psql -U postgres -d demo -c "SELECT anon.anonymize_table('customer');"
 docker exec -it anon_db pg_dump -U postgres demo > demo_static_anonymized.sql.dump
-Configuration & security
+
+## Configuration & security
 HMAC secret (tokens)
 The trigger function reads a config key app.hmac_key. Set/rotate it (use a long random value):
 
 
 docker exec -it anon_db psql -U postgres -d demo \
   -c "ALTER SYSTEM SET app.hmac_key = 'replace-with-a-long-random-secret'; SELECT pg_reload_conf();"
+  
 Keep the secret out of SQL bodies and backups.
 
 Store secrets in your orchestrator (Docker/K8s secrets, Vault, etc.).
 
 
-Inspiration & references
+## Inspiration & references
 
 PostgreSQL Anonymizer (Neon fork) — https://github.com/neondatabase/postgresql_anonymizer
 Official docs — https://postgresql-anonymizer.readthedocs.io/
