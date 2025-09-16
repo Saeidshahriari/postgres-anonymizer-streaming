@@ -218,6 +218,59 @@ docker exec -it anon_db pg_dump -U postgres demo > demo_static_anonymized.sql.du
 
 ---
 
+## Optional: Rust Mini-Consumer
+
+> You **don’t need Rust** to run this project. This client is optional and only demonstrates how a typed consumer could read from `sanitized.customer`.
+
+### Prerequisites
+
+- Install Rust toolchain: https://rustup.rs
+
+### Configure & Run
+
+```bash
+cd app_rust
+# If your host port is 5433, adjust the DSN accordingly:
+export RUST_DB_DSN="host=localhost port=5432 dbname=demo user=consumer password=consumer"
+cargo run
+```
+
+### What it does
+
+- Connects using the `RUST_DB_DSN` connection string
+- Every 2 seconds prints the latest 5 rows from `sanitized.customer`
+
+> If you’re not using Rust at all, either keep `app_rust/` as an example or remove the folder to keep the repo minimal.
+
+
+## Why Rust in this repo?
+
+> Rust is **optional** here. The core anonymization pipeline runs fully inside PostgreSQL (dynamic masking + triggers → `sanitized.*`).  
+> We include a tiny **Rust mini-consumer** only to show how a production-grade client could read from `sanitized.*` safely and efficiently.
+
+### Goals
+
+- **Separation of concerns**: Raw PII stays in `public.*` inside the DB. The Rust client connects as the low-privileged `consumer` role and reads **only** `sanitized.*`. This mirrors a real-world downstream service in EU/GDPR contexts.
+- **Demonstrate a typed, safe consumer**: Rust’s strong typing helps encode domain contracts at compile-time (e.g., schema → struct mapping) and fail fast if queries drift.
+- **Reliability & performance**: For long-running daemons (streams, pollers, push-servers), Rust gives low-latency I/O with `tokio`, predictable memory usage, and no GC pauses.
+- **Small deployable artifacts**: Single static binary → tiny Docker image; easy to run in constrained environments.
+- **Security posture**: Memory safety by design, minimal runtime surface, and easy to add TLS/mTLS later if you expose a network service that forwards sanitized events.
+
+### When would you use Rust (vs Python) here?
+
+- If you need a **long-running** microservice consuming `sanitized.*` and forwarding data to BI, cache, or message bus with **low latency** and **minimal resource usage**, Rust shines.
+- If you’re just doing **quick seeding / scripting**, Python is faster to iterate. That’s why this repo uses Python (Faker) for synthetic writes and **Rust only as an optional consumer**.
+
+### What the Rust example does (in `app_rust/`)
+
+- Connects with `RUST_DB_DSN` as `consumer`.
+- Every 2 seconds reads the latest 5 rows from `sanitized.customer` and prints them.
+- Touches **only** the sanitized schema (no access to `public.*`), reinforcing the privacy boundary.
+
+> If your project doesn’t need a compiled consumer, you can remove `app_rust/` and keep the README section noting that downstream systems should read `sanitized.*` using the least-privilege role.
+
+---
+
 ## Inspiration & References
 
 - CipherMQ — inspiration for documentation structure and secure transport ideas (no code copied).  
