@@ -5,6 +5,7 @@ _No Kafka / No Flink. EU/GDPR‑friendly demo._
 
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-blue)](#)
 [![Docker](https://img.shields.io/badge/Docker-Compose-informational)](#)
+[![Python](https://img.shields.io/badge/Python-3.12.x-blue)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
 This repository demonstrates privacy‑by‑design patterns **entirely inside PostgreSQL**:
