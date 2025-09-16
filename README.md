@@ -1,4 +1,3 @@
-cat > README.md <<'EOF'
 # PostgreSQL Anonymizer Starter
 **Dynamic masking + Real-time streaming (triggers) + Static anonymization**  
 _No Kafka/Flink. EU/GDPR-friendly demo._
@@ -40,8 +39,6 @@ public.customer --(AFTER INSERT/UPDATE triggers)--> sanitized.customer (HMAC tok
 
 [optional] Static anonymization (irreversible) --> safe dump for external sharing
 
-markdown
-Copy code
 
 - **Dynamic masking** is enabled via `SECURITY LABEL ... IS 'MASKED WITH FUNCTION ...'` and a `MASKED` role (e.g., `analyst`).
 - **Streaming anonymization** is implemented with:
@@ -79,7 +76,6 @@ Copy code
 │ └─ src/main.rs
 └─ tests/
 └─ test_masked_visibility.sql
-
 
 ---
 
@@ -188,19 +184,9 @@ Store secrets in your orchestrator (Docker/K8s secrets, Vault, etc.).
 Inspiration & references
 
 PostgreSQL Anonymizer (Neon fork) — https://github.com/neondatabase/postgresql_anonymizer
-
 Official docs — https://postgresql-anonymizer.readthedocs.io/
-
 Pagila — https://github.com/devrimgunduz/pagila
-
 Psycopg 3 — https://www.psycopg.org/psycopg3/docs/
-
 Faker — https://faker.readthedocs.io/
-
 tokio-postgres — https://docs.rs/tokio-postgres/latest/tokio_postgres/
-
 GDPR Art. 25 — https://eur-lex.europa.eu/eli/reg/2016/679/oj
-
-License
-This project is released under the MIT License. See LICENSE.
-EOF
